@@ -1,0 +1,15 @@
+# Core dependencies
+pypdf
+sentence-transformers
+faiss-cpu
+rank-bm25
+numpy
+
+# Optional (for API)
+fastapi
+uvicorn
+python-dotenv
+groq
+
+# UI
+streamlit
