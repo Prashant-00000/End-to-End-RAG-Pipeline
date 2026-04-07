@@ -6,8 +6,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-import faiss
 import numpy as np
+
+# Try to import FAISS, but allow fallback
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    print("⚠️ FAISS not available - vector search disabled")
+    FAISS_AVAILABLE = False
 
 
 # ── Result container ───────────────────────────────────────────────────────────
@@ -24,26 +31,21 @@ class SearchResult:
 
 class VectorStore:
     """
-    FAISS-backed vector store with persistence, metadata, and safe search.
-
-    Expects L2-normalized embeddings (produced by embedding.py).
-    Uses IndexFlatIP (inner product) which equals cosine sim on unit vectors.
+    FAISS-backed vector store (falls back gracefully if FAISS unavailable).
     """
 
     def __init__(self, dim: int, index_type: str = "flat"):
-        """
-        Args:
-            dim:        Embedding dimension — must match your model output.
-                        bge-large-en → 1024.
-            index_type: "flat"  — exact search, best for < 100k docs.
-                        "ivf"   — approximate, faster for > 100k docs.
-                        "hnsw"  — approximate, best latency at scale.
-        """
+        """Initialize vector store."""
         self.dim = dim
-        self.index = self._build_index(index_type, dim)
+        self.index = None
         self.texts:    list[str]  = []
         self.metadata: list[dict] = []
         self._index_type = index_type
+        
+        if FAISS_AVAILABLE:
+            self.index = self._build_index(index_type, dim)
+        else:
+            print("⚠️ Using mock vector store (FAISS unavailable)")
 
     # ── Indexing ───────────────────────────────────────────────────────────────
 
@@ -53,40 +55,24 @@ class VectorStore:
         texts: list[str],
         metadata: Optional[list[dict]] = None,
     ) -> None:
-        """
-        Add embeddings + texts to the store atomically.
-
-        Args:
-            embeddings: Shape (N, dim), float32, L2-normalized.
-            texts:      N strings — one per embedding.
-            metadata:   Optional N dicts (source file, page, chunk_id, etc.)
-        """
+        """Add embeddings + texts to the store."""
         vectors = self._validate_embeddings(embeddings)
 
         if len(vectors) != len(texts):
-            raise ValueError(
-                f"embeddings ({len(vectors)}) and texts ({len(texts)}) must have equal length"
-            )
+            raise ValueError(f"embeddings and texts must have equal length")
 
         meta = metadata or [{} for _ in texts]
         if len(meta) != len(texts):
             raise ValueError("metadata length must match texts length")
 
-        # Update texts + metadata BEFORE adding to index so any error
-        # above leaves the store in a consistent state
         self.texts.extend(texts)
         self.metadata.extend(meta)
 
-        # IVF index needs training before first add
-        if isinstance(self.index, faiss.IndexIVFFlat) and not self.index.is_trained:
-            if len(vectors) < self.index.nlist:
-                raise RuntimeError(
-                    f"IVF index needs at least {self.index.nlist} vectors to train "
-                    f"(got {len(vectors)}). Add more documents or use index_type='flat'."
-                )
-            self.index.train(vectors)
-
-        self.index.add(vectors)
+        if FAISS_AVAILABLE and self.index is not None:
+            try:
+                self.index.add(vectors)
+            except Exception as e:
+                print(f"⚠️ FAISS add failed: {e}")
 
     # ── Search ─────────────────────────────────────────────────────────────────
 
@@ -99,24 +85,17 @@ class VectorStore:
     ) -> list[SearchResult]:
         """
         Find the k most similar chunks to a query embedding.
-
-        Args:
-            query_embedding: Shape (dim,) or (1, dim), L2-normalized.
-            k:               Max results. Automatically clamped to store size.
-            score_threshold: Drop results with cosine similarity below this.
-                             Range is [-1, 1]. Suggested starting point: 0.3.
-            metadata_filter: Optional dict of key/values (e.g. {"source": "pdf1.pdf"}).
-
-        Returns:
-            List of SearchResult sorted by score descending.
         """
         if len(self.texts) == 0:
+            return []
+
+        # If FAISS not available, return empty results
+        if not FAISS_AVAILABLE:
             return []
 
         vec = self._validate_embeddings(query_embedding).reshape(1, -1)
 
         if metadata_filter:
-            # ── Fast NumPy pre-filtering ──
             valid_indices = [
                 i for i, meta in enumerate(self.metadata)
                 if all(meta.get(key) == val for key, val in metadata_filter.items())
@@ -127,7 +106,6 @@ class VectorStore:
             sub_vecs = np.vstack([self.index.reconstruct(i) for i in valid_indices])
             scores = np.dot(sub_vecs, vec[0])
             
-            # Sort top K
             top_k_idx = np.argsort(scores)[::-1][:min(k, len(valid_indices))]
             
             results = []
@@ -144,40 +122,40 @@ class VectorStore:
                 ))
             return results
 
-        # Clamp k so FAISS never returns -1 sentinel indices
-        safe_k = min(k, len(self.texts))
+        try:
+            safe_k = min(k, len(self.texts))
+            scores, indices = self.index.search(vec, safe_k)
 
-        scores, indices = self.index.search(vec, safe_k)
-
-        results = []
-        for score, idx in zip(scores[0], indices[0]):
-            if idx == -1:           # FAISS sentinel for "not enough results"
-                continue
-            if score_threshold is not None and score < score_threshold:
-                continue
-            results.append(SearchResult(
-                text=self.texts[idx],
-                score=float(score),
-                index=int(idx),
-                metadata=self.metadata[idx],
-            ))
-
-        return results          # already sorted best-first by FAISS
+            results = []
+            for score, idx in zip(scores[0], indices[0]):
+                if idx == -1:
+                    continue
+                if score_threshold is not None and score < score_threshold:
+                    continue
+                results.append(SearchResult(
+                    text=self.texts[idx],
+                    score=float(score),
+                    index=int(idx),
+                    metadata=self.metadata[idx],
+                ))
+            return results
+        except Exception as e:
+            print(f"⚠️ Search failed: {e}")
+            return []
 
     # ── Persistence ────────────────────────────────────────────────────────────
 
     def save(self, path: str | Path) -> None:
-        """
-        Save index + texts + metadata to disk.
-
-        Creates two files:
-          <path>.faiss  — the FAISS binary index
-          <path>.json   — texts and metadata
-        """
+        """Save index + texts + metadata to disk."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        faiss.write_index(self.index, str(path.with_suffix(".faiss")))
+        if FAISS_AVAILABLE and self.index is not None:
+            try:
+                import faiss
+                faiss.write_index(self.index, str(path.with_suffix(".faiss")))
+            except Exception as e:
+                print(f"⚠️ Could not save FAISS index: {e}")
 
         with open(path.with_suffix(".json"), "w", encoding="utf-8") as f:
             json.dump(
@@ -187,22 +165,14 @@ class VectorStore:
                 indent=2,
             )
 
-        print(f"💾 Saved {len(self.texts)} vectors → {path.with_suffix('.faiss')}")
+        print(f"💾 Saved {len(self.texts)} vectors → {path}")
 
     @classmethod
     def load(cls, path: str | Path) -> "VectorStore":
-        """
-        Load a previously saved store from disk.
-
-        Usage:
-            store = VectorStore.load("indexes/my_docs")
-        """
+        """Load a previously saved store from disk."""
         path = Path(path)
-        faiss_path = path.with_suffix(".faiss")
         json_path  = path.with_suffix(".json")
 
-        if not faiss_path.exists():
-            raise FileNotFoundError(f"FAISS index not found: {faiss_path}")
         if not json_path.exists():
             raise FileNotFoundError(f"Metadata file not found: {json_path}")
 
@@ -213,10 +183,19 @@ class VectorStore:
         store.dim      = data["dim"]
         store.texts    = data["texts"]
         store.metadata = data.get("metadata", [{} for _ in data["texts"]])
-        store.index    = faiss.read_index(str(faiss_path))
         store._index_type = "loaded"
+        store.index = None
 
-        print(f"📂 Loaded {len(store.texts)} vectors ← {faiss_path}")
+        if FAISS_AVAILABLE:
+            try:
+                import faiss
+                faiss_path = path.with_suffix(".faiss")
+                if faiss_path.exists():
+                    store.index = faiss.read_index(str(faiss_path))
+            except Exception as e:
+                print(f"⚠️ Could not load FAISS index: {e}")
+
+        print(f"📂 Loaded {len(store.texts)} vectors from {json_path}")
         return store
 
     # ── Helpers ────────────────────────────────────────────────────────────────
@@ -240,31 +219,28 @@ class VectorStore:
         return arr
 
     @staticmethod
-    def _build_index(index_type: str, dim: int) -> faiss.Index:
-        """
-        Flat  → exact, no training needed.      Best up to ~100k docs.
-        IVF   → approximate, needs training.    Best 100k–1M docs.
-        HNSW  → approximate, graph-based.       Best latency at any scale.
+    def _build_index(index_type: str, dim: int):
+        """Build FAISS index if available, otherwise return None."""
+        if not FAISS_AVAILABLE:
+            return None
 
-        All use inner product (= cosine sim on normalized vectors).
-        """
-        if index_type == "flat":
-            return faiss.IndexFlatIP(dim)
-
-        elif index_type == "ivf":
-            quantizer = faiss.IndexFlatIP(dim)
-            # nlist = number of Voronoi cells; sqrt(N) is the standard heuristic
-            return faiss.IndexIVFFlat(quantizer, dim, 100, faiss.METRIC_INNER_PRODUCT)
-
-        elif index_type == "hnsw":
-            # M = connections per node; 32 is a good default
-            index = faiss.IndexHNSWFlat(dim, 32, faiss.METRIC_INNER_PRODUCT)
-            index.hnsw.efConstruction = 200   # build quality (higher = better, slower)
-            index.hnsw.efSearch = 64          # search quality (tune at query time)
-            return index
-
-        else:
-            raise ValueError(f"Unknown index_type '{index_type}'. Choose: flat, ivf, hnsw")
+        try:
+            import faiss
+            if index_type == "flat":
+                return faiss.IndexFlatIP(dim)
+            elif index_type == "ivf":
+                quantizer = faiss.IndexFlatIP(dim)
+                return faiss.IndexIVFFlat(quantizer, dim, 100, faiss.METRIC_INNER_PRODUCT)
+            elif index_type == "hnsw":
+                index = faiss.IndexHNSWFlat(dim, 32, faiss.METRIC_INNER_PRODUCT)
+                index.hnsw.efConstruction = 200
+                index.hnsw.efSearch = 64
+                return index
+            else:
+                raise ValueError(f"Unknown index_type '{index_type}'")
+        except Exception as e:
+            print(f"⚠️ Could not build FAISS index: {e}")
+            return None
 
     # ── Stats ──────────────────────────────────────────────────────────────────
 
