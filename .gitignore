@@ -58,8 +58,8 @@ scratch_test.py
 sessions.json.migrated
 out.txt
 
-# Streamlit
-.streamlit/
+# Streamlit — only ignore secrets, NOT config.toml
+.streamlit/secrets.toml
 *.streamlit.cache
 
 # OS

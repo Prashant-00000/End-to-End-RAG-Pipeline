@@ -10,13 +10,25 @@ load_dotenv()
 
 # ── Client ─────────────────────────────────────────────────────────────────────
 
+def _get_groq_key() -> str | None:
+    """Try st.secrets first (Streamlit Cloud), then env vars (local .env)."""
+    try:
+        import streamlit as st
+        val = st.secrets.get("GROQ_API_KEY")
+        if val:
+            return str(val)
+    except Exception:
+        pass
+    return os.getenv("GROQ_API_KEY")
+
+
 def _get_client() -> Groq:
     """Build Groq client, failing fast if the key is missing."""
-    api_key = os.getenv("GROQ_API_KEY")
+    api_key = _get_groq_key()
     if not api_key:
         raise EnvironmentError(
             "GROQ_API_KEY not found. "
-            "Add it to your .env file: GROQ_API_KEY=your_key_here"
+            "Add it to your .env file (local) or Streamlit Cloud Secrets."
         )
     timeout_secs = float(os.getenv("GROQ_TIMEOUT_SECS", "120"))
     max_retries = int(os.getenv("GROQ_MAX_RETRIES", "5"))
