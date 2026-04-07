@@ -150,7 +150,8 @@ class VectorStore:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        if FAISS_AVAILABLE and self.index is not None:
+        # Only save FAISS index if we have vectors
+        if len(self.texts) > 0 and FAISS_AVAILABLE and self.index is not None:
             try:
                 import faiss
                 faiss.write_index(self.index, str(path.with_suffix(".faiss")))
