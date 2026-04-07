@@ -12,6 +12,14 @@ warnings.filterwarnings('ignore', category=DeprecationWarning)
 import streamlit as st
 from pathlib import Path
 
+# Initialize session state FIRST before any imports that might use it
+if "history" not in st.session_state:
+    st.session_state.history = []
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "session_name" not in st.session_state:
+    st.session_state.session_name = None
+
 from app.bm25_store import BM25Store
 from app.groq_client import generate_stream, rewrite_query, detect_intent
 from app.reranker import RankedResult
@@ -76,18 +84,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 vs, bm25 = check_and_get_indexes()
-
-# ── Session state init ─────────────────────────────────────────────────────────
-
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
-if "session_name" not in st.session_state:
-    st.session_state.session_name = None
-
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 
