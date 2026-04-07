@@ -24,14 +24,30 @@ def build_indexes() -> tuple[VectorStore, BM25Store]:
     INDEX_DIR.mkdir(exist_ok=True)
 
     pdf_files = [str(p) for p in DATA_DIR.glob("*.pdf")]
+    
+    # If no PDFs found, return empty indexes (for Streamlit Cloud)
     if not pdf_files:
-        pdf_files = [
-            "data/A_Brief_Introduction_To_AI.pdf",
-            "data/2024-wttc-introduction-to-ai.pdf",
-            "data/Gen ai.pdf"
-        ]
+        print("⚠️ No PDFs found in data/ folder")
+        print("📌 App will work with BM25 search only (add PDFs to data/ to enable full RAG)")
+        
+        # Return empty indexes
+        vs = VectorStore(384)  # BGE small has 384 dimensions
+        bm25 = BM25Store([])
+        
+        vs.save(INDEX_DIR / "vector_store.faiss")
+        bm25.save(INDEX_DIR / "bm25_store.bm25.json")
+        
+        return vs, bm25
 
     page_docs = load_pdfs(pdf_files)
+    if not page_docs:
+        print("⚠️ No documents loaded from PDFs")
+        vs = VectorStore(384)
+        bm25 = BM25Store([])
+        vs.save(INDEX_DIR / "vector_store.faiss")
+        bm25.save(INDEX_DIR / "bm25_store.bm25.json")
+        return vs, bm25
+    
     text = " ".join([doc.text for doc in page_docs])
 
     text = text.replace("\n", " ")
@@ -65,6 +81,14 @@ def build_indexes() -> tuple[VectorStore, BM25Store]:
         clean_chunks = [c.strip() for c in chunks if len(c.strip()) > 50]
         print(f"✨ {len(clean_chunks)} clean chunks (from fixed chunking)\n")
 
+    if not clean_chunks:
+        print("⚠️ Still no chunks after fallback!")
+        vs = VectorStore(384)
+        bm25 = BM25Store([])
+        vs.save(INDEX_DIR / "vector_store.faiss")
+        bm25.save(INDEX_DIR / "bm25_store.bm25.json")
+        return vs, bm25
+
     print(f"Chunks to embed: {len(clean_chunks)}")
     
     embedded_chunks = embed_documents(clean_chunks)
@@ -72,16 +96,14 @@ def build_indexes() -> tuple[VectorStore, BM25Store]:
     
     print(f"Embeddings created: {len(embeddings)}")
     
-    if not embeddings:
-        raise ValueError("❌ No embeddings created. Check if documents are loaded properly.")
-    
-    if len(embeddings[0]) == 0:
-        raise ValueError("❌ Embedding dimension is 0. Check embedding model.")
-
-    vs = VectorStore(len(embeddings[0]))
-    vs.add(embeddings, clean_chunks)
-
-    bm25 = BM25Store(clean_chunks)
+    if not embeddings or len(embeddings[0]) == 0:
+        print("⚠️ Failed to create embeddings, using empty indexes")
+        vs = VectorStore(384)
+        bm25 = BM25Store([])
+    else:
+        vs = VectorStore(len(embeddings[0]))
+        vs.add(embeddings, clean_chunks)
+        bm25 = BM25Store(clean_chunks)
 
     vs.save(INDEX_DIR / "vector_store.faiss")
     bm25.save(INDEX_DIR / "bm25_store.bm25.json")
@@ -100,10 +122,18 @@ def build_indexes() -> tuple[VectorStore, BM25Store]:
 def load_indexes() -> tuple[VectorStore, BM25Store]:
     """Load pre-built vector store and BM25 index from disk."""
     print("📂 Loading indexes from disk...")
-    vs = VectorStore.load(INDEX_DIR / "vector_store.faiss")
-    bm25 = BM25Store.load(INDEX_DIR / "bm25_store.bm25.json")
-    print("✅ Indexes loaded")
-    return vs, bm25
+    try:
+        vs = VectorStore.load(INDEX_DIR / "vector_store.faiss")
+        bm25 = BM25Store.load(INDEX_DIR / "bm25_store.bm25.json")
+        print("✅ Indexes loaded")
+        return vs, bm25
+    except FileNotFoundError:
+        print("ℹ️ Index files not found, rebuilding...")
+        return build_indexes()
+    except Exception as e:
+        print(f"⚠️ Error loading indexes: {e}")
+        print("ℹ️ Rebuilding indexes...")
+        return build_indexes()
 
 
 # ── Query pipeline ─────────────────────────────────────────────────────────────

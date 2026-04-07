@@ -65,11 +65,12 @@ class BM25Store:
     incremental updates, scores, and metadata passthrough.
     """
 
-    def __init__(self, remove_stopwords: bool = True):
+    def __init__(self, chunks: Optional[list[str]] = None, remove_stopwords: bool = True):
         """
-        Create an empty store. Add documents with .add().
+        Create an empty or initialized store.
 
         Args:
+            chunks:           Optional list of text chunks to add initially.
             remove_stopwords: Strip common words before indexing.
                               Set False for technical/code corpora.
         """
@@ -79,6 +80,9 @@ class BM25Store:
         self._bm25:     Optional[BM25Okapi] = None
         self._remove_stopwords = remove_stopwords
         self._dirty = False              # tracks whether index needs rebuild
+        
+        if chunks:
+            self.add(chunks)
 
     # ── Indexing ───────────────────────────────────────────────────────────────
 
