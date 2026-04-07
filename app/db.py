@@ -1,4 +1,8 @@
-from app.supabase_client import supabase
+try:
+    from app.supabase_client import supabase
+except Exception as e:
+    print(f"⚠️ Supabase client import failed: {e}")
+    supabase = None
 
 def get_session(name: str):
     if not supabase:

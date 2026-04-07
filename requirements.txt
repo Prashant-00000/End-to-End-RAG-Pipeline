@@ -1,18 +1,8 @@
-# Core minimal dependencies for Streamlit Cloud
 streamlit==1.28.1
-pypdf==4.0.1
-
-# Lightweight search
+pypdf==3.17.1
+numpy==1.24.3
 faiss-cpu==1.7.4
 rank-bm25==0.2.2
-numpy==1.24.3
-
-# Utilities  
 python-dotenv==1.0.0
-groq==0.4.2
-supabase==2.3.4
 requests==2.31.0
-
-# Optional: embeddings (lazy-loaded, will try to load on first use)
-# sentence-transformers==2.2.2
-# uncomment above if you want embeddings; will work offline without it
+groq==0.4.1
