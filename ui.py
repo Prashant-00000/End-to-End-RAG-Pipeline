@@ -7,7 +7,7 @@ from app.bm25_store import BM25Store
 from app.groq_client import generate_stream, rewrite_query, detect_intent
 from app.reranker import RankedResult
 from app.vector_store import VectorStore
-from main import INDEX_DIR, DATA_DIR, build_indexes, load_indexes, query_pipeline, async_add_document, remove_document_fast, UPLOAD_TASKS
+from main import INDEX_DIR, DATA_DIR, build_indexes, load_indexes, UPLOAD_TASKS
 
 
 # ── Persistent session storage (Supabase) ─────────────────────────────────────
