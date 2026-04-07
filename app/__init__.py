@@ -1,18 +1,19 @@
 ﻿"""RAG application package."""
 
-# Suppress transformers library warnings about missing optional dependencies
-import warnings
+# Configure logging BEFORE importing transformers
+import logging
 import os
-import sys
 
-# Filter transformers and torch warnings
-warnings.filterwarnings('ignore', category=UserWarning, module='.*transformers.*')
-warnings.filterwarnings('ignore', message='.*No module named.*torchvision.*')
-warnings.filterwarnings('ignore', message='.*No module named.*timm.*')
-warnings.filterwarnings('ignore', message='.*Accessing `__path__`.*')
-warnings.filterwarnings('ignore', message='.*Tried to instantiate class.*')
+# Suppress transformers library logging
+logging.getLogger('transformers').setLevel(logging.ERROR)
+logging.getLogger('transformers.models').setLevel(logging.ERROR)
+logging.getLogger('torch').setLevel(logging.ERROR)
+
+# Set environment variables to suppress warnings
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow logging
+os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
+
+# Suppress Python warnings
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning)
 warnings.filterwarnings('ignore', category=DeprecationWarning)
-
-# Also suppress at environment level by setting PYTHONWARNINGS
-if 'PYTHONWARNINGS' not in os.environ:
-    os.environ['PYTHONWARNINGS'] = 'ignore::DeprecationWarning,ignore::UserWarning'

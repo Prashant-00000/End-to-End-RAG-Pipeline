@@ -12,7 +12,7 @@ showErrorDetails = true
 toolbarMode = "viewer"
 
 [logger]
-level = "warning"
+level = "error"
 
 [server]
 port = 8501

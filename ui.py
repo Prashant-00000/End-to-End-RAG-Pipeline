@@ -1,24 +1,31 @@
 from __future__ import annotations
 
-# Suppress warnings early - must be after __future__ imports
+# Configure logging FIRST - before any imports
+import logging
+import os
+
+logging.getLogger('transformers').setLevel(logging.ERROR)
+logging.getLogger('transformers.models').setLevel(logging.ERROR)
+logging.getLogger('torch').setLevel(logging.ERROR)
+logging.getLogger('PIL').setLevel(logging.ERROR)
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
+
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning)
-warnings.filterwarnings('ignore', message='.*No module named.*torchvision.*')
-warnings.filterwarnings('ignore', message='.*No module named.*timm.*')
-warnings.filterwarnings('ignore', message='.*Accessing `__path__`.*')
-warnings.filterwarnings('ignore', message='.*Tried to instantiate class.*')
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
-import streamlit as st
-from pathlib import Path
-
 # Initialize session state FIRST before any imports that might use it
+import streamlit as st
 if "history" not in st.session_state:
     st.session_state.history = []
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "session_name" not in st.session_state:
     st.session_state.session_name = None
+
+from pathlib import Path
 
 from app.bm25_store import BM25Store
 from app.groq_client import generate_stream, rewrite_query, detect_intent

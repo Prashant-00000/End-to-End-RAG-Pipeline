@@ -1,16 +1,24 @@
-# Suppress warnings early - must be first
-import warnings
+# Configure logging FIRST - before any imports
+import logging
 import os
 import sys
 
+# Suppress all transformers and torch logging
+logging.getLogger('transformers').setLevel(logging.ERROR)
+logging.getLogger('transformers.models').setLevel(logging.ERROR)
+logging.getLogger('torch').setLevel(logging.ERROR)
+logging.getLogger('PIL').setLevel(logging.ERROR)
+
+# Set environment variables
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
+
+# Suppress Python warnings
+import warnings
 warnings.filterwarnings('ignore', category=UserWarning)
-warnings.filterwarnings('ignore', message='.*No module named.*torchvision.*')
-warnings.filterwarnings('ignore', message='.*No module named.*timm.*')
-warnings.filterwarnings('ignore', message='.*Accessing `__path__`.*')
-warnings.filterwarnings('ignore', message='.*Tried to instantiate class.*')
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
-# Import app package (which also has warning suppression)
+# Import app package (which also has logging suppression)
 import app
 
 from pathlib import Path
