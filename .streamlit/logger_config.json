@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "formatters": {
+    "default": {
+      "format": "[%(levelname)s] %(message)s"
+    }
+  },
+  "handlers": {
+    "console": {
+      "class": "logging.StreamHandler",
+      "level": "WARNING",
+      "formatter": "default",
+      "stream": "ext://sys.stdout"
+    }
+  },
+  "loggers": {
+    "transformers": {
+      "level": "ERROR",
+      "handlers": ["console"],
+      "propagate": false
+    },
+    "torch": {
+      "level": "ERROR",
+      "handlers": ["console"],
+      "propagate": false
+    },
+    "sentence_transformers": {
+      "level": "WARNING",
+      "handlers": ["console"],
+      "propagate": false
+    }
+  },
+  "root": {
+    "level": "WARNING",
+    "handlers": ["console"]
+  }
+}

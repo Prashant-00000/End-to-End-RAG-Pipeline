@@ -1,7 +1,17 @@
-# Suppress transformers library import warnings
+# Suppress warnings early - must be first
 import warnings
+import os
+import sys
+
+warnings.filterwarnings('ignore', category=UserWarning)
 warnings.filterwarnings('ignore', message='.*No module named.*torchvision.*')
+warnings.filterwarnings('ignore', message='.*No module named.*timm.*')
 warnings.filterwarnings('ignore', message='.*Accessing `__path__`.*')
+warnings.filterwarnings('ignore', message='.*Tried to instantiate class.*')
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+
+# Import app package (which also has warning suppression)
+import app
 
 from pathlib import Path
 from app.ingestion import load_pdfs

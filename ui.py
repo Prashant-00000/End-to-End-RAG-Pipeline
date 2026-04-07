@@ -1,3 +1,12 @@
+# Suppress warnings early - must be first
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning)
+warnings.filterwarnings('ignore', message='.*No module named.*torchvision.*')
+warnings.filterwarnings('ignore', message='.*No module named.*timm.*')
+warnings.filterwarnings('ignore', message='.*Accessing `__path__`.*')
+warnings.filterwarnings('ignore', message='.*Tried to instantiate class.*')
+warnings.filterwarnings('ignore', category=DeprecationWarning)
+
 from __future__ import annotations
 
 import streamlit as st
