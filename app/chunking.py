@@ -1,8 +1,29 @@
-from sentence_transformers import SentenceTransformer
 import numpy as np
 import re
+from typing import Optional
 
-model = SentenceTransformer("BAAI/bge-small-en")
+# ── Lazy-load model ────────────────────────────────────────────────────────────
+
+_model: Optional[object] = None
+
+def get_chunking_model(model_name: str = "BAAI/bge-small-en"):
+    """Lazy-load model only when semantic chunking is needed."""
+    global _model
+    if _model is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            print(f"🔧 Loading chunking model...")
+            _model = SentenceTransformer(model_name)
+        except Exception as e:
+            print(f"⚠️ Model loading failed, using fixed chunking instead: {e}")
+            _model = None
+    return _model
+
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Compute cosine similarity between two vectors."""
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 def fixed_chunking(text, chunk_size=300, overlap=50):
     # Clean up excessive whitespace and newlines
@@ -19,6 +40,15 @@ def fixed_chunking(text, chunk_size=300, overlap=50):
     return chunks
 
 def semantic_chunking(text, threshold=0.6):
+    """Chunk text based on semantic similarity between sentences."""
+    # Try to load model
+    model = get_chunking_model()
+    
+    # If model load fails, fall back to fixed chunking
+    if model is None:
+        print("⚠️ Falling back to fixed chunking...")
+        return fixed_chunking(text, chunk_size=300, overlap=50)
+    
     # Clean text before chunking
     text = text.replace("\n", " ")
     text = " ".join(text.split())
