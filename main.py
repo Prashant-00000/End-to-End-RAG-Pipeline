@@ -1,3 +1,8 @@
+# Suppress transformers library import warnings
+import warnings
+warnings.filterwarnings('ignore', message='.*No module named.*torchvision.*')
+warnings.filterwarnings('ignore', message='.*Accessing `__path__`.*')
+
 from pathlib import Path
 from app.ingestion import load_pdfs
 from app.chunking import semantic_chunking
