@@ -2,8 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
-from sentence_transformers import CrossEncoder
 
+# ── Try to import CrossEncoder, provide fallback ────────────────────────────────
+
+try:
+    from sentence_transformers import CrossEncoder
+    _crossencoder_available = True
+except ImportError:
+    print("⚠️ sentence-transformers not available, reranking will use mock scores")
+    _crossencoder_available = False
+    CrossEncoder = None
 
 # ── Model registry ─────────────────────────────────────────────────────────────
 #
@@ -11,24 +19,33 @@ from sentence_transformers import CrossEncoder
 #  MiniLM-L-6   MiniLM-L-12   bge-reranker-base   bge-reranker-large
 #
 RERANKER_MODELS = {
-    "fast":    "cross-encoder/ms-marco-MiniLM-L-6-v2",    # your current model
-    "balanced":"cross-encoder/ms-marco-MiniLM-L-12-v2",   # ~same speed, better scores
-    "best":    "BAAI/bge-reranker-large",                  # best quality, ~3× slower
+    "fast":    "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "balanced":"cross-encoder/ms-marco-MiniLM-L-12-v2",
+    "best":    "BAAI/bge-reranker-large",
 }
 
-_model: Optional[CrossEncoder] = None
+_model: Optional[object] = None
 _model_name: Optional[str] = None
 
 
-def get_model(model_name: str = RERANKER_MODELS["balanced"]) -> CrossEncoder:
-    """Lazy-load once, reuse forever. Picks GPU automatically."""
+def get_model(model_name: str = RERANKER_MODELS["balanced"]):
+    """Lazy-load reranker model (with fallback)."""
     global _model, _model_name
+    
+    if not _crossencoder_available:
+        return None
+    
     if _model is None or _model_name != model_name:
-        import torch
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        print(f"🔧 Loading reranker '{model_name}' on {device}...")
-        _model = CrossEncoder(model_name, device=device, max_length=512)
-        _model_name = model_name
+        try:
+            import torch
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            print(f"🔧 Loading reranker '{model_name}' on {device}...")
+            _model = CrossEncoder(model_name, device=device, max_length=512)
+            _model_name = model_name
+        except Exception as e:
+            print(f"⚠️ Reranker loading failed: {e}")
+            _model = None
+    
     return _model
 
 
@@ -39,9 +56,8 @@ class RankedResult:
     """A reranked document with its relevance score and original position."""
     text:             str
     score:            float
-    original_rank:    int          # position before reranking
-    metadata:         dict         # pass-through from EmbeddedChunk or your store
-
+    original_rank:    int
+    metadata:         dict
 
 # ── Core reranker ──────────────────────────────────────────────────────────────
 
@@ -78,12 +94,19 @@ def rerank(
     pairs = [(query, text) for text in texts]
 
     model = get_model(model_name)
-    scores: list[float] = model.predict(
-        pairs,
-        batch_size=batch_size,
-        show_progress_bar=len(pairs) > 50,
-        convert_to_numpy=True,
-    ).tolist()
+    
+    if model is not None:
+        # Use neural reranking
+        scores: list[float] = model.predict(
+            pairs,
+            batch_size=batch_size,
+            show_progress_bar=len(pairs) > 50,
+            convert_to_numpy=True,
+        ).tolist()
+    else:
+        # Fallback: use text similarity or constant scores
+        print("⚠️ Using mock scores (install sentence-transformers for better reranking)")
+        scores = [float(i) for i in range(len(texts))]  # Just use original order
 
     # Build results with original rank before sorting
     results = [

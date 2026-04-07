@@ -2,26 +2,40 @@ import numpy as np
 import re
 from typing import Optional
 
-# ── Lazy-load model ────────────────────────────────────────────────────────────
+# ── Lazy-load model for semantic chunking ──────────────────────────────────────
 
 _model: Optional[object] = None
+_model_available: bool = False
 
 def get_chunking_model(model_name: str = "BAAI/bge-small-en"):
-    """Lazy-load model only when semantic chunking is needed."""
-    global _model
-    if _model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            print(f"🔧 Loading chunking model...")
-            _model = SentenceTransformer(model_name)
-        except Exception as e:
-            print(f"⚠️ Model loading failed, using fixed chunking instead: {e}")
-            _model = None
-    return _model
+    """
+    Lazy-load model only when semantic chunking is needed.
+    Falls back to fixed chunking if model unavailable.
+    """
+    global _model, _model_available
+    
+    if _model_available:
+        return _model
+    
+    try:
+        from sentence_transformers import SentenceTransformer
+        print(f"🔧 Loading chunking model...")
+        _model = SentenceTransformer(model_name)
+        _model_available = True
+        return _model
+    except Exception as e:
+        print(f"⚠️ Semantic chunking unavailable: {e}")
+        print("📊 Using fixed chunking instead")
+        _model_available = False
+        return None
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     """Compute cosine similarity between two vectors."""
-    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    norm_a = np.linalg.norm(a)
+    norm_b = np.linalg.norm(b)
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    return float(np.dot(a, b) / (norm_a * norm_b))
 
 # ─────────────────────────────────────────────────────────────────────────────
 
