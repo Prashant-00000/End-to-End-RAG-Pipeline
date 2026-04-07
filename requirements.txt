@@ -1,15 +1,20 @@
 # Core dependencies
-pypdf
-sentence-transformers
-faiss-cpu
-rank-bm25
-numpy
+pypdf>=3.0.0
+sentence-transformers>=2.2.0
+faiss-cpu>=1.7.4
+rank-bm25>=0.2.0
+numpy>=1.24.0
 
-# Optional (for API)
-fastapi
-uvicorn
-python-dotenv
-groq
+# API & Cloud
+fastapi>=0.95.0
+uvicorn>=0.21.0
+python-dotenv>=1.0.0
+groq>=0.4.0
+supabase>=2.0.0
 
 # UI
-streamlit
+streamlit>=1.28.0
+
+# Optional utilities
+torch>=2.0.0  # For GPU support (auto-detected)
+PyTorch-tokenizer>=1.0.0
