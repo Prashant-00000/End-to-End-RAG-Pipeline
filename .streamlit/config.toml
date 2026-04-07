@@ -24,6 +24,3 @@ fileWatcherType = "none"
 
 [browser]
 gatherUsageStats = false
-
-[deprecation]
-showPyarrowDeprecationWarning = false
