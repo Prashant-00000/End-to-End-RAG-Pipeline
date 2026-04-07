@@ -65,8 +65,18 @@ def build_indexes() -> tuple[VectorStore, BM25Store]:
         clean_chunks = [c.strip() for c in chunks if len(c.strip()) > 50]
         print(f"✨ {len(clean_chunks)} clean chunks (from fixed chunking)\n")
 
+    print(f"Chunks to embed: {len(clean_chunks)}")
+    
     embedded_chunks = embed_documents(clean_chunks)
     embeddings = [ec.embedding for ec in embedded_chunks]
+    
+    print(f"Embeddings created: {len(embeddings)}")
+    
+    if not embeddings:
+        raise ValueError("❌ No embeddings created. Check if documents are loaded properly.")
+    
+    if len(embeddings[0]) == 0:
+        raise ValueError("❌ Embedding dimension is 0. Check embedding model.")
 
     vs = VectorStore(len(embeddings[0]))
     vs.add(embeddings, clean_chunks)
