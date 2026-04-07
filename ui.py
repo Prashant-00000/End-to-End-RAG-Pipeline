@@ -7,8 +7,10 @@ from app.bm25_store import BM25Store
 from app.groq_client import generate_stream, rewrite_query, detect_intent
 from app.reranker import RankedResult
 from app.vector_store import VectorStore
-from main import INDEX_DIR, DATA_DIR, build_indexes, load_indexes, UPLOAD_TASKS
-
+from main import (
+    INDEX_DIR, DATA_DIR, build_indexes, load_indexes, UPLOAD_TASKS,
+    async_add_document, remove_document_fast, query_pipeline,
+)
 
 # ── Persistent session storage (Supabase) ─────────────────────────────────────
 
@@ -29,16 +31,14 @@ from app.cloud_storage import download_indexes
 @st.cache_resource
 def check_and_get_indexes() -> tuple[VectorStore, BM25Store]:
     faiss_marker = INDEX_DIR / "vector_store.faiss"
-    
+
     if faiss_marker.exists():
         return load_indexes()
-    
-    # Try fetching from cloud, with status message
+
     with st.spinner("⬇️ Checking cloud storage for indexes..."):
         if download_indexes(INDEX_DIR):
             return load_indexes()
-    
-    # Build from scratch if not found
+
     with st.spinner("🔨 Building indexes from PDFs... (this may take a while)"):
         return build_indexes()
 
@@ -68,8 +68,6 @@ st.markdown("""
 
 vs, bm25 = check_and_get_indexes()
 
-# Database initialized in Supabase cloud!
-
 # ── Session state init ─────────────────────────────────────────────────────────
 
 if "history" not in st.session_state:
@@ -91,19 +89,19 @@ with st.sidebar:
 
     @st.fragment(run_every="1s")
     def render_background_tasks():
-        active = {k: v for k, v in UPLOAD_TASKS.items() if v["status"] != "Done" and not v["status"].startswith("Error")}
+        active   = {k: v for k, v in UPLOAD_TASKS.items() if v["status"] != "Done" and not v["status"].startswith("Error")}
         finished = {k: v for k, v in UPLOAD_TASKS.items() if v["status"] == "Done"}
-        errors = {k: v for k, v in UPLOAD_TASKS.items() if v["status"].startswith("Error")}
-        
+        errors   = {k: v for k, v in UPLOAD_TASKS.items() if v["status"].startswith("Error")}
+
         for name in list(finished.keys()):
             st.toast(f"✅ Finished indexing {name}!")
             check_and_get_indexes.clear()
             del UPLOAD_TASKS[name]
-            
+
         for name, info in list(errors.items()):
             st.toast(f"❌ Failed to index {name}: {info['status']}")
             del UPLOAD_TASKS[name]
-            
+
         if active:
             st.markdown("### ⏳ Background Tasks")
             for name, info in active.items():
@@ -134,11 +132,11 @@ with st.sidebar:
             with col2:
                 if st.button("🗑", key=f"del_pdf_{pdf.name}", help="Remove this document"):
                     pdf.unlink()
-                    with st.spinner("Fast removing document..."):
+                    with st.spinner("Removing document..."):
                         remove_document_fast(pdf, vs, bm25)
                         check_and_get_indexes.clear()
                     st.rerun()
-            
+
     uploaded_file = st.file_uploader("Upload a PDF", type=["pdf"])
     if uploaded_file is not None:
         file_path = DATA_DIR / uploaded_file.name
@@ -164,7 +162,6 @@ with st.sidebar:
 
     st.markdown("### 🕘 Chat history")
 
-    # Always load fresh from DB
     all_sessions = load_all_sessions()
 
     if not all_sessions:
@@ -238,22 +235,19 @@ if query:
         st.write(query)
     st.session_state.history.append({"role": "user", "content": query})
 
-    # Auto-name session from first question with a unique hash to prevent DB overwrites
     if st.session_state.session_name is None:
         import uuid
         uid = uuid.uuid4().hex[:4]
         st.session_state.session_name = f"{query[:30]} - {uid}"
 
-    # Detect Intent
     intent = detect_intent(query)
     is_summary_mode = (intent == "summary")
-    
+
     if is_summary_mode:
         if show_rewrite:
             st.caption("📑 Document Summary Mode activated")
-        rewritten = query # No need to rewrite summary queries
+        rewritten = query
     else:
-        # Rewrite vague queries
         rewritten = rewrite_query(query)
         if show_rewrite and rewritten != query:
             st.caption(f"🔄 Searching for: *{rewritten}*")
@@ -262,14 +256,13 @@ if query:
     if selected_doc != "All Documents":
         metadata_filter = {"source": selected_doc}
 
-    # Retrieve
     with st.spinner("🔍 Extracting documents..." if is_summary_mode else "🔍 Searching documents..."):
         results: list[RankedResult] = query_pipeline(
-            rewritten, 
-            vs, 
-            bm25, 
+            rewritten,
+            vs,
+            bm25,
             is_summary_mode=is_summary_mode,
-            metadata_filter=metadata_filter
+            metadata_filter=metadata_filter,
         )
 
     chunks = [
@@ -307,7 +300,6 @@ if query:
         try:
             answer = st.write_stream(token_gen())
 
-            # Dynamically render sources for the newly generated response
             if show_sources and sources:
                 with st.expander("📎 Retrieved sources", expanded=False):
                     for i, src in enumerate(sources, 1):
@@ -319,21 +311,22 @@ if query:
                         )
                         st.caption(src["preview"])
             answer = "".join(collected).strip()
+
         except Exception as e:
             st.error(f"Groq request failed: {e}")
             answer = "Sorry — I couldn't reach the language model right now."
 
-            with st.expander("📎 Retrieved sources", expanded=False):
-                for i, src in enumerate(sources, 1):
-                    st.markdown(
-                        f'<span class="source-pill">📄 [{i}] '
-                        f'{src["source"]} — p.{src["page"]} '
-                        f'(score: {src["score"]:.2f})</span>',
-                        unsafe_allow_html=True,
-                    )
-                    st.caption(src["preview"])
+            if show_sources and sources:
+                with st.expander("📎 Retrieved sources", expanded=False):
+                    for i, src in enumerate(sources, 1):
+                        st.markdown(
+                            f'<span class="source-pill">📄 [{i}] '
+                            f'{src["source"]} — p.{src["page"]} '
+                            f'(score: {src["score"]:.2f})</span>',
+                            unsafe_allow_html=True,
+                        )
+                        st.caption(src["preview"])
 
-    # Update histories
     st.session_state.history.append({
         "role":    "assistant",
         "content": answer,
@@ -346,12 +339,7 @@ if query:
     if len(st.session_state.chat_history) > 20:
         st.session_state.chat_history = st.session_state.chat_history[-20:]
 
-    # Save to DB after every message
     save_current_session()
 
-    # Reset session name so the NEXT question creates a distinct new entry
-    # in the sidebar. This satisfies the user's expectation of a query history.
     st.session_state.session_name = None
-    
-    # Rerun to immediately update the interface
     st.rerun()
