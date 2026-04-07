@@ -252,17 +252,25 @@ if query:
         uid = uuid.uuid4().hex[:4]
         st.session_state.session_name = f"{query[:30]} - {uid}"
 
-    intent = detect_intent(query)
-    is_summary_mode = (intent == "summary")
+    try:
+        intent = detect_intent(query)
+        is_summary_mode = (intent == "summary")
+    except (EnvironmentError, Exception):
+        # Fallback to search mode if Groq API is not available
+        is_summary_mode = False
 
     if is_summary_mode:
         if show_rewrite:
             st.caption("📑 Document Summary Mode activated")
         rewritten = query
     else:
-        rewritten = rewrite_query(query)
-        if show_rewrite and rewritten != query:
-            st.caption(f"🔄 Searching for: *{rewritten}*")
+        try:
+            rewritten = rewrite_query(query)
+            if show_rewrite and rewritten != query:
+                st.caption(f"🔄 Searching for: *{rewritten}*")
+        except (EnvironmentError, Exception):
+            # Fallback to original query if rewriting fails
+            rewritten = query
 
     metadata_filter = None
     if selected_doc != "All Documents":
@@ -299,14 +307,20 @@ if query:
     collected: list[str] = []
 
     def token_gen():
-        for tok in generate_stream(
-            query=query,
-            context_chunks=chunks,
-            chat_history=st.session_state.chat_history,
-            is_summary_mode=is_summary_mode,
-        ):
-            collected.append(tok)
-            yield tok
+        try:
+            for tok in generate_stream(
+                query=query,
+                context_chunks=chunks,
+                chat_history=st.session_state.chat_history,
+                is_summary_mode=is_summary_mode,
+            ):
+                collected.append(tok)
+                yield tok
+        except (EnvironmentError, Exception) as e:
+            # Fallback response when Groq API is not available
+            fallback_msg = "⚠️ Groq API not configured. Please add GROQ_API_KEY to Streamlit Cloud secrets to enable AI features. For now, here are the retrieved documents."
+            yield fallback_msg
+            collected.append(fallback_msg)
 
     with st.chat_message("assistant"):
         try:
@@ -325,8 +339,13 @@ if query:
             answer = "".join(collected).strip()
 
         except Exception as e:
-            st.error(f"Groq request failed: {e}")
-            answer = "Sorry — I couldn't reach the language model right now."
+            error_msg = str(e).lower()
+            if "groq_api_key" in error_msg or "not found" in error_msg:
+                st.warning("⚠️ **GROQ_API_KEY not configured**\n\nTo enable AI features on Streamlit Cloud:\n1. Go to your app settings\n2. Click 'Secrets (beta)'\n3. Add: `GROQ_API_KEY=your_key_here`")
+                answer = "API key not configured. Retrieved documents are shown above, but AI features are disabled. Please configure GROQ_API_KEY to enable AI responses."
+            else:
+                st.error(f"Error: {e}")
+                answer = "Sorry — I couldn't reach the language model right now."
 
             if show_sources and sources:
                 with st.expander("📎 Retrieved sources", expanded=False):
