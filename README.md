@@ -153,3 +153,8 @@ BM25 Sparse Search  +  Vector Similarity Search
 ## 📄 License
 
 MIT License — feel free to use and adapt.
+
+
+## 🌐 Live Demo
+
+👉 [Try it here](https://end-to-end-rag-pipelinegit-m2tjnwfmpv4xqlvpnjwt9t.streamlit.app/)
