@@ -266,14 +266,25 @@ def remove_document_fast(file_path: Path, vs: VectorStore, bm25: BM25Store) -> N
 
         # Rebuild BM25 without the removed document
         kept_bm25_texts = [
-            t for t, m in zip(bm25.texts, bm25.metadata)
+            t for t, m in zip(bm25.chunks, bm25.metadata)
             if m.get("source") != name
         ]
         kept_bm25_meta = [
             m for m in bm25.metadata
             if m.get("source") != name
         ]
-        bm25.__init__(kept_bm25_texts, kept_bm25_meta if kept_bm25_meta else None)
+        
+        # Clear and rebuild BM25 store
+        bm25.chunks = []
+        bm25.metadata = []
+        bm25._tokenized = []
+        bm25._bm25 = None
+        bm25._dirty = True
+        
+        # Add the kept chunks with metadata
+        if kept_bm25_texts:
+            bm25.add(kept_bm25_texts, kept_bm25_meta)
+
 
         # Save updated indexes
         INDEX_DIR.mkdir(exist_ok=True)

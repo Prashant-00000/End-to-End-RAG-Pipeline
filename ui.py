@@ -372,5 +372,4 @@ if query:
 
     save_current_session()
 
-    st.session_state.session_name = None
     st.rerun()
